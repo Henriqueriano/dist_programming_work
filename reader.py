@@ -54,8 +54,12 @@ class Timing:
 
 
 def read_csv_columns(csv_path: str) -> list[str]:
-    # Lê apenas o header do CSV para detectar os nomes das colunas
-    with open(csv_path, encoding="utf-8", newline="") as f:
+    # Lê apenas o header do CSV para detectar os nomes das colunas.
+    # Se for glob, usa o primeiro arquivo que casar.
+    import glob as _glob
+    matches = _glob.glob(csv_path)
+    path = matches[0] if matches else csv_path
+    with open(path, encoding="utf-8", newline="") as f:
         return next(csv.reader(f, delimiter=";"))
 
 
