@@ -116,7 +116,7 @@ def process_with_spark(
         df.repartition(PARTITIONS)
         .filter(F.col(state_col).isNotNull() & F.col(vaccine_col).isNotNull())
         .withColumn("state",   F.upper(F.col(state_col)))
-        .withColumn("vaccine", F.col(vaccine_col))
+        .withColumn("vaccine", F.regexp_extract(F.col(vaccine_col), r"^(?:COVID-19\s+)?([^-]+)", 1))
         .select("state", "vaccine")
     )
     df_clean.cache()
@@ -165,7 +165,7 @@ def process_with_pandas(
     t = time.perf_counter()
     df_clean = df.dropna(subset=[state_col, vaccine_col]).copy()
     df_clean["state"]   = df_clean[state_col].str.upper()
-    df_clean["vaccine"] = df_clean[vaccine_col]
+    df_clean["vaccine"] = df_clean[vaccine_col].str.extract(r"^(?:COVID-19\s+)?([^-]+)", expand=False).str.strip()
     timing.transform = time.perf_counter() - t
 
     # groupby().head(TOP_N) após sort garante os N maiores por estado
@@ -202,12 +202,20 @@ def process_with_python(
         header      = [c.strip('"') for c in next(reader)]
         state_idx   = header.index(state_col)
         vaccine_idx = header.index(vaccine_col)
-        raw = [(row[state_idx], row[vaccine_idx]) for row in reader]
+        # Ignora linhas truncadas (ex: última linha de CSV cortado por Range header)
+        min_idx = max(state_idx, vaccine_idx) + 1
+        raw = [(row[state_idx], row[vaccine_idx]) for row in reader if len(row) >= min_idx]
     timing.read = time.perf_counter() - t
 
     t = time.perf_counter()
+    def _short_vaccine(v: str) -> str:
+        v = v.strip('"')
+        if v.upper().startswith("COVID-19 "):
+            v = v[9:]
+        return v.split(" - ")[0].strip()
+
     pairs = [
-        (s.strip('"').upper(), v.strip('"'))
+        (s.strip('"').upper(), _short_vaccine(v))
         for s, v in raw
         if s.strip('"') and v.strip('"')
     ]
@@ -380,7 +388,7 @@ if __name__ == "__main__":
 
     columns     = read_csv_columns(csv_path)
     state_col   = _detect_column(columns, "uf")
-    vaccine_col = _detect_column(columns, "vacina", "nome")
+    vaccine_col = _detect_column(columns, "vacina_nome")
 
     print(f"state column  : {state_col}")
     print(f"vaccine column: {vaccine_col}")
